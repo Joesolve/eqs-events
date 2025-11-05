@@ -1,0 +1,502 @@
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta
+from io import BytesIO
+import time
+import os
+import calendar
+
+# For local development, use OneDrive path
+# For online hosting, use local file
+
+EXCEL_FILE = 'scheduling_recent.xlsx'  # For online hosting
+
+st.set_page_config(page_title="EQS Event Scheduling", layout="wide")
+
+# Main heading
+st.title("🗓️ EQS Event Scheduling")
+st.markdown("---")
+
+# ---------- Utility ----------
+def load_data():
+    """Load data WITHOUT caching so it always reflects the latest saved state"""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # Check if file exists, if not create it
+            if not os.path.exists(EXCEL_FILE):
+                df = pd.DataFrame(columns=[
+                    "Title", "Date", "Type", "Status", "Source",
+                    "Client", "Course/Description", "Trainer Calendar", "Medium", "Location",
+                    "Billing", "Invoiced", "Notes", "Date Modified", "Action Type"
+                ])
+                df.to_excel(EXCEL_FILE, index=False, engine='openpyxl')
+                return df
+            
+            df = pd.read_excel(EXCEL_FILE, engine='openpyxl')
+            
+            # Remove Start Time, End Time, All Day columns if they exist
+            columns_to_drop = ['Start Time', 'End Time', 'All Day']
+            df = df.drop(columns=[col for col in columns_to_drop if col in df.columns], errors='ignore')
+            
+            # Ensure Date column is datetime
+            if len(df) > 0 and 'Date' in df.columns:
+                df["Date"] = pd.to_datetime(df["Date"])
+            
+            # Reorder columns to put Title first
+            cols = df.columns.tolist()
+            if "Title" in cols:
+                cols.remove("Title")
+                cols = ["Title"] + cols
+                df = df[cols]
+            return df
+        except PermissionError:
+            if attempt < max_retries - 1:
+                time.sleep(1)  # Wait 1 second before retrying
+                continue
+            else:
+                st.error("⚠️ Cannot access the file. Please close the Excel file if it's open and refresh the page.")
+                st.stop()
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(1)
+                continue
+            else:
+                st.error(f"⚠️ Error loading data: {str(e)}")
+                # Return empty dataframe as fallback
+                df = pd.DataFrame(columns=[
+                    "Title", "Date", "Type", "Status", "Source",
+                    "Client", "Course/Description", "Trainer Calendar", "Medium", "Location",
+                    "Billing", "Invoiced", "Notes", "Date Modified", "Action Type"
+                ])
+                return df
+    return pd.DataFrame()
+
+def save_data(df):
+    """Save data with retry logic"""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # Ensure Title is first column before saving
+            cols = df.columns.tolist()
+            if "Title" in cols:
+                cols.remove("Title")
+                cols = ["Title"] + cols
+                df = df[cols]
+            
+            # Try to save
+            df.to_excel(EXCEL_FILE, index=False, engine='openpyxl')
+            return True
+        except PermissionError:
+            if attempt < max_retries - 1:
+                time.sleep(1)  # Wait 1 second before retrying
+                continue
+            else:
+                st.error("⚠️ Cannot save to file. Please close the Excel file if it's open and try again.")
+                return False
+    return False
+
+def generate_title(row):
+    base = f"{row['Status']}-{row['Source']}-{row['Client']} {row['Course/Description']}"
+    if row["Type"] == "W":
+        base += f" ({row['Medium']}) {row['Trainer Calendar']} {row['Location']}"
+    elif row["Type"] == "M":
+        base += f" {row['Trainer Calendar']} {row['Location']}"
+    else:
+        base += f" {row['Trainer Calendar']}"
+    return base.strip()
+
+# ---------- Constants ----------
+TRAINERS = ["Dom", "Andrew", "Dale", "Jack"]
+LOCATIONS = ["Syd", "Mel", "Bne", "SG", "Msia"]
+MONTHS = [
+    "All months", "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+]
+STATUSES = ["All", "Offered", "Tentative", "Confirmed"]
+SOURCES = ["All", "EQS", "CCE", "CTD"]
+
+# Trainer colors
+TRAINER_COLORS = {
+    "Dom": "#FF6B6B",      # Red
+    "Andrew": "#4ECDC4",   # Teal
+    "Dale": "#95E1D3",     # Mint
+    "Jack": "#FFD93D"      # Yellow
+}
+
+# ---------- Load Data ----------
+df = load_data()
+
+# ---------- Tabs ----------
+tab1, tab2, tab3 = st.tabs(["➕ New Event", "🔍 Manage Events", "📅 Calendar View"])
+
+# ---------- NEW EVENT TAB ----------
+with tab1:
+    st.header("Add New Event")
+    with st.form("add_form", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            date = st.date_input("Date")
+        
+        with c2:
+            type_ = st.selectbox("Type", ["W", "C", "M"])
+            status = st.selectbox("Status", ["Offered", "Tentative", "Confirmed"])
+            source = st.selectbox("Source", ["EQS", "CCE", "CTD"])
+        with c3:
+            client = st.text_input("Client")
+            course = st.text_input("Course / Description")
+            trainer = st.selectbox("Trainer Calendar", TRAINERS)
+            medium = st.selectbox("Medium", ["F2F", "Online"])
+
+        location = st.selectbox("Location", LOCATIONS)
+        billing = st.text_area("Billing Notes")
+        invoiced = st.selectbox("Invoiced", ["No", "Yes"])
+        notes = st.text_area("Additional Notes")
+
+        submitted = st.form_submit_button("Save Event", use_container_width=True)
+        if submitted:
+            new_row = {
+                "Date": date,
+                "Type": type_,
+                "Status": status,
+                "Source": source,
+                "Client": client,
+                "Course/Description": course,
+                "Trainer Calendar": trainer,
+                "Medium": medium,
+                "Location": location,
+                "Billing": billing,
+                "Invoiced": invoiced,
+                "Notes": notes,
+                "Date Modified": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "Action Type": "Created"
+            }
+            new_row["Title"] = generate_title(new_row)
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            save_data(df)
+            st.success("✅ Event added successfully! Form cleared for new entry.")
+            st.rerun()
+
+# ---------- MANAGE EVENTS TAB ----------
+with tab2:
+    st.header("Manage Events")
+
+    # Filters
+    st.subheader("🔍 Filter Events")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    trainer_filter = col1.selectbox("Trainer", ["All"] + TRAINERS, key="search_trainer")
+    month_filter = col2.selectbox("Month", MONTHS, key="search_month")
+    status_filter = col3.selectbox("Status", STATUSES, key="search_status")
+    source_filter = col4.selectbox("Source", SOURCES, key="search_source")
+    client_search = col5.text_input("Client", key="search_client", placeholder="Search client...")
+
+    result = df.copy()
+
+    if trainer_filter != "All":
+        result = result[result["Trainer Calendar"] == trainer_filter]
+    if month_filter != "All months":
+        result = result[pd.to_datetime(result["Date"]).dt.month_name() == month_filter]
+    if status_filter != "All":
+        result = result[result["Status"] == status_filter]
+    if source_filter != "All":
+        result = result[result["Source"] == source_filter]
+    if client_search:
+        result = result[result["Client"].str.contains(client_search, case=False, na=False)]
+
+    st.write(f"**Showing {len(result)} events**")
+    
+    # Display filtered results with checkboxes
+    if len(result) == 0:
+        st.info("No events found with current filters.")
+    else:
+        # Add selection column
+        st.write("### Select Events for Bulk Operations")
+        
+        # Create checkboxes for each event
+        selected_events = []
+        for idx in result.index:
+            col1, col2 = st.columns([0.1, 0.9])
+            with col1:
+                if st.checkbox("", key=f"check_{idx}"):
+                    selected_events.append(idx)
+            with col2:
+                st.write(f"**{result.loc[idx, 'Title']}** - {result.loc[idx, 'Date'].strftime('%Y-%m-%d')}")
+        
+        st.divider()
+        
+        # Display full table
+        st.dataframe(result, use_container_width=True)
+        
+        # Export button
+        towrite = BytesIO()
+        result.to_excel(towrite, index=False, engine="openpyxl")
+        towrite.seek(0)
+        st.download_button("⬇️ Download Filtered Data", data=towrite,
+                           file_name="Filtered_Events.xlsx", mime="application/vnd.ms-excel")
+        
+        st.divider()
+        
+        # Operations on selected events
+        if len(selected_events) > 0:
+            st.write(f"### 🎯 {len(selected_events)} Event(s) Selected")
+            
+            op_tab1, op_tab2, op_tab3 = st.tabs(["✏️ Bulk Edit", "📋 Duplicate", "🗑️ Delete"])
+            
+            # BULK EDIT
+            with op_tab1:
+                st.write(f"**Edit {len(selected_events)} selected event(s)**")
+                
+                # Show which events will be edited
+                st.write("**Events to be updated:**")
+                for idx in selected_events:
+                    st.write(f"- {df.loc[idx, 'Title']} ({df.loc[idx, 'Date'].strftime('%Y-%m-%d')})")
+                
+                st.divider()
+                
+                with st.form("bulk_edit_form"):
+                    update_options = st.multiselect(
+                        "Select fields to update",
+                        ["Status", "Trainer Calendar", "Location", "Medium", "Invoiced", "Type", "Source"],
+                        help="Only the fields you select here will be updated"
+                    )
+                    
+                    bulk_updates = {}
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if "Status" in update_options:
+                            bulk_updates["Status"] = st.selectbox("New Status", ["Offered", "Tentative", "Confirmed"], key="bulk_status_new")
+                        if "Trainer Calendar" in update_options:
+                            bulk_updates["Trainer Calendar"] = st.selectbox("New Trainer", TRAINERS, key="bulk_trainer_new")
+                        if "Location" in update_options:
+                            bulk_updates["Location"] = st.selectbox("New Location", LOCATIONS, key="bulk_location_new")
+                        if "Type" in update_options:
+                            bulk_updates["Type"] = st.selectbox("New Type", ["W", "C", "M"], key="bulk_type_new")
+                    
+                    with col2:
+                        if "Medium" in update_options:
+                            bulk_updates["Medium"] = st.selectbox("New Medium", ["F2F", "Online"], key="bulk_medium_new")
+                        if "Invoiced" in update_options:
+                            bulk_updates["Invoiced"] = st.selectbox("New Invoiced", ["No", "Yes"], key="bulk_invoiced_new")
+                        if "Source" in update_options:
+                            bulk_updates["Source"] = st.selectbox("New Source", ["EQS", "CCE", "CTD"], key="bulk_source_new")
+                    
+                    if st.form_submit_button(f"💾 Update {len(selected_events)} Event(s)", use_container_width=True):
+                        if len(update_options) == 0:
+                            st.warning("Please select at least one field to update!")
+                        else:
+                            # Only update the SELECTED events, not all filtered events
+                            for idx in selected_events:
+                                for field, value in bulk_updates.items():
+                                    df.at[idx, field] = value
+                                df.at[idx, "Date Modified"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                                df.at[idx, "Action Type"] = "Bulk Modified"
+                                df.at[idx, "Title"] = generate_title(df.loc[idx])
+                            
+                            save_data(df)
+                            st.success(f"✅ Updated {len(selected_events)} event(s)!")
+                            st.rerun()
+            
+            # DUPLICATE
+            with op_tab2:
+                st.write(f"**Duplicate {len(selected_events)} selected event(s)**")
+                
+                with st.form("duplicate_form"):
+                    dup_method = st.radio(
+                        "Duplication method",
+                        ["Single Date", "Date Range"],
+                        help="Single Date: duplicate to one specific date. Date Range: duplicate across multiple consecutive days"
+                    )
+                    
+                    if dup_method == "Single Date":
+                        dup_date = st.date_input("Duplicate to this date")
+                        
+                        if st.form_submit_button(f"🔄 Duplicate {len(selected_events)} Event(s)", use_container_width=True):
+                            new_events = []
+                            for idx in selected_events:
+                                original = df.loc[idx].copy()
+                                original["Date"] = pd.Timestamp(dup_date)
+                                original["Date Modified"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                                original["Action Type"] = "Duplicated"
+                                original["Title"] = generate_title(original)
+                                new_events.append(original)
+                            
+                            df_new = pd.concat([df, pd.DataFrame(new_events)], ignore_index=True)
+                            save_data(df_new)
+                            st.success(f"✅ Created {len(new_events)} duplicate(s)!")
+                            st.rerun()
+                    
+                    else:  # Date Range
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            range_start = st.date_input("Start Date")
+                        with col2:
+                            range_end = st.date_input("End Date")
+                        
+                        st.info(f"This will create duplicates for each day from {range_start} to {range_end}")
+                        
+                        if st.form_submit_button(f"🔄 Duplicate Across Date Range", use_container_width=True):
+                            if range_end < range_start:
+                                st.error("End date must be after start date!")
+                            else:
+                                new_events = []
+                                for idx in selected_events:
+                                    original = df.loc[idx].copy()
+                                    
+                                    current_date = range_start
+                                    while current_date <= range_end:
+                                        new_event = original.copy()
+                                        new_event["Date"] = pd.Timestamp(current_date)
+                                        new_event["Date Modified"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                                        new_event["Action Type"] = "Duplicated"
+                                        new_event["Title"] = generate_title(new_event)
+                                        new_events.append(new_event)
+                                        current_date += timedelta(days=1)
+                                
+                                df_new = pd.concat([df, pd.DataFrame(new_events)], ignore_index=True)
+                                save_data(df_new)
+                                st.success(f"✅ Created {len(new_events)} duplicate(s)!")
+                                st.rerun()
+            
+            # DELETE
+            with op_tab3:
+                st.warning(f"⚠️ You are about to delete {len(selected_events)} event(s)")
+                
+                # Show events to be deleted
+                for idx in selected_events:
+                    st.write(f"- {df.loc[idx, 'Title']}")
+                
+                if st.button(f"🗑️ Delete {len(selected_events)} Event(s)", type="primary", use_container_width=True):
+                    df = df.drop(selected_events).reset_index(drop=True)
+                    save_data(df)
+                    st.success(f"✅ Deleted {len(selected_events)} event(s)!")
+                    st.rerun()
+        
+        else:
+            st.info("👆 Select events using the checkboxes above to perform bulk operations")
+
+# ---------- CALENDAR VIEW TAB ----------
+with tab3:
+    st.header("📅 Calendar View")
+    
+    # Month and Year selector
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        current_year = datetime.now().year
+        selected_year = st.selectbox("Year", range(current_year - 1, current_year + 3), index=1)
+    with col2:
+        selected_month = st.selectbox("Month", range(1, 13), 
+                                      format_func=lambda x: datetime(2000, x, 1).strftime('%B'),
+                                      index=datetime.now().month - 1)
+    
+    # Trainer color legend
+    st.subheader("Trainer Color Legend")
+    legend_cols = st.columns(len(TRAINERS))
+    for idx, trainer in enumerate(TRAINERS):
+        with legend_cols[idx]:
+            st.markdown(f"<div style='background-color: {TRAINER_COLORS[trainer]}; padding: 10px; border-radius: 5px; text-align: center; color: black; font-weight: bold;'>{trainer}</div>", unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Filter events for selected month
+    month_events = df[
+        (pd.to_datetime(df["Date"]).dt.month == selected_month) & 
+        (pd.to_datetime(df["Date"]).dt.year == selected_year)
+    ].copy()
+    
+    # Generate calendar
+    cal = calendar.monthcalendar(selected_year, selected_month)
+    
+    # Days of week header
+    days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    header_cols = st.columns(7)
+    for idx, day in enumerate(days_of_week):
+        with header_cols[idx]:
+            st.markdown(f"<div style='text-align: center; font-weight: bold; padding: 5px;'>{day}</div>", unsafe_allow_html=True)
+    
+    # Calendar grid
+    for week in cal:
+        week_cols = st.columns(7)
+        for idx, day in enumerate(week):
+            with week_cols[idx]:
+                if day == 0:
+                    # Empty cell for days outside the month
+                    st.markdown("<div style='height: 100px; border: 1px solid #ddd; border-radius: 5px;'></div>", unsafe_allow_html=True)
+                else:
+                    # Get events for this day
+                    day_date = datetime(selected_year, selected_month, day)
+                    day_events = month_events[pd.to_datetime(month_events["Date"]).dt.date == day_date.date()]
+                    
+                    # Create day cell
+                    if len(day_events) > 0:
+                        # Group events by trainer
+                        trainer_counts = day_events["Trainer Calendar"].value_counts()
+                        
+                        # Build color indicators
+                        color_bars = ""
+                        for trainer in TRAINERS:
+                            if trainer in trainer_counts:
+                                count = trainer_counts[trainer]
+                                color_bars += f"<div style='background-color: {TRAINER_COLORS[trainer]}; height: 8px; margin: 2px 0;'></div>"
+                        
+                        cell_html = f"""
+                        <div style='border: 2px solid #333; border-radius: 5px; padding: 5px; height: 100px; background-color: #f9f9f9;'>
+                            <div style='text-align: center; font-weight: bold; font-size: 18px;'>{day}</div>
+                            {color_bars}
+                            <div style='text-align: center; font-size: 12px; margin-top: 5px;'>{len(day_events)} event(s)</div>
+                        </div>
+                        """
+                        st.markdown(cell_html, unsafe_allow_html=True)
+                        
+                        # Button to show details
+                        if st.button(f"View Details", key=f"day_{day}", use_container_width=True):
+                            st.session_state[f"selected_day"] = day_date
+                    else:
+                        # Empty day
+                        st.markdown(f"""
+                        <div style='border: 1px solid #ddd; border-radius: 5px; padding: 5px; height: 100px; background-color: #fff;'>
+                            <div style='text-align: center; font-weight: bold; font-size: 18px; color: #999;'>{day}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+    
+    # Show event details when a day is selected
+    st.divider()
+    if "selected_day" in st.session_state:
+        selected_date = st.session_state["selected_day"]
+        st.subheader(f"📋 Events on {selected_date.strftime('%B %d, %Y')}")
+        
+        day_events = month_events[pd.to_datetime(month_events["Date"]).dt.date == selected_date.date()]
+        
+        if len(day_events) > 0:
+            for idx, (event_idx, event) in enumerate(day_events.iterrows()):
+                trainer_color = TRAINER_COLORS.get(event["Trainer Calendar"], "#CCCCCC")
+                
+                with st.expander(f"**{event['Title']}**", expanded=True):
+                    st.markdown(f"<div style='background-color: {trainer_color}; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>", unsafe_allow_html=True)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.write(f"**Trainer:** {event['Trainer Calendar']}")
+                        st.write(f"**Type:** {event['Type']}")
+                        st.write(f"**Status:** {event['Status']}")
+                    with col2:
+                        st.write(f"**Client:** {event['Client']}")
+                        st.write(f"**Source:** {event['Source']}")
+                        st.write(f"**Medium:** {event['Medium']}")
+                    with col3:
+                        st.write(f"**Location:** {event['Location']}")
+                        st.write(f"**Invoiced:** {event['Invoiced']}")
+                    
+                    st.write(f"**Course:** {event['Course/Description']}")
+                    if event['Notes']:
+                        st.write(f"**Notes:** {event['Notes']}")
+                    if event['Billing']:
+                        st.write(f"**Billing:** {event['Billing']}")
+                    
+                    st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.info("No events on this date.")
+        
+        if st.button("Clear Selection"):
+            del st.session_state["selected_day"]
+            st.rerun()
