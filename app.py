@@ -441,9 +441,9 @@ with tab3:
                         
                         cell_html = f"""
                         <div style='border: 2px solid #333; border-radius: 5px; padding: 5px; height: 100px; background-color: #f9f9f9;'>
-                            <div style='text-align: center; font-weight: bold; font-size: 18px;'>{day}</div>
+                            <div style='text-align: center; font-weight: bold; font-size: 18px; color: #000;'>{day}</div>
                             {color_bars}
-                            <div style='text-align: center; font-size: 12px; margin-top: 5px;'>{len(day_events)} event(s)</div>
+                            <div style='text-align: center; font-size: 12px; margin-top: 5px; color: #000;'>{len(day_events)} event(s)</div>
                         </div>
                         """
                         st.markdown(cell_html, unsafe_allow_html=True)
