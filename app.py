@@ -13,6 +13,156 @@ EXCEL_FILE = 'scheduling_recent.xlsx'  # For online hosting
 
 st.set_page_config(page_title="EQS Event Scheduling", layout="wide")
 
+# ---------- Authentication ----------
+AUTHORIZED_EMAILS = [
+    "sues@eqstrategist.com",
+    "joec@eqstrategist.com",
+    "doms@eqstrategist.com"
+]
+
+# Default password
+DEFAULT_PASSWORD = "Welcome123"
+
+# Initialize password storage in session state
+if "user_passwords" not in st.session_state:
+    st.session_state.user_passwords = {email: DEFAULT_PASSWORD for email in AUTHORIZED_EMAILS}
+
+def check_authentication():
+    """Check if user is authenticated"""
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    return st.session_state.authenticated
+
+def login_page():
+    """Display login page"""
+    # Custom CSS for white background and styled login form
+    st.markdown("""
+        <style>
+        .stApp {
+            background-color: white;
+        }
+        .stButton>button {
+            background-color: #FF6B35;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            font-weight: bold;
+        }
+        .stButton>button:hover {
+            background-color: #E85A2A;
+            color: white;
+        }
+        h1, h2, h3, p, label, div {
+            color: black !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    # Center container
+    col1, col2, col3 = st.columns([1.5, 2, 1.5])
+    
+    with col2:
+        # Display logo
+        st.markdown("<div style='text-align: center; margin-top: 30px;'>", unsafe_allow_html=True)
+        if os.path.exists("logo.png"):
+            st.image("logo.png", width=150)
+        else:
+            st.title("🗓️ EQS Event Scheduling")
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Login form
+        st.markdown("<h3 style='text-align: center; color: black;'>🔐 Login to Access</h3>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Check if we're in reset password mode
+        if "reset_mode" not in st.session_state:
+            st.session_state.reset_mode = False
+        
+        if not st.session_state.reset_mode:
+            # Normal login form
+            with st.form("login_form"):
+                email = st.text_input("Email Address", placeholder="Enter your email")
+                password = st.text_input("Password", type="password", placeholder="Enter your password")
+                
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    submit = st.form_submit_button("Login", use_container_width=True)
+                with col_b:
+                    reset = st.form_submit_button("Reset Password", use_container_width=True)
+                
+                if submit:
+                    email_lower = email.lower().strip()
+                    if email_lower in AUTHORIZED_EMAILS:
+                        if st.session_state.user_passwords.get(email_lower) == password:
+                            st.session_state.authenticated = True
+                            st.session_state.user_email = email_lower
+                            st.success("✅ Login successful!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Incorrect password.")
+                    else:
+                        st.error("❌ Access denied. You are not authorized to access this application.")
+                
+                if reset:
+                    st.session_state.reset_mode = True
+                    st.rerun()
+        
+        else:
+            # Reset password form
+            st.markdown("<p style='text-align: center; font-weight: bold; color: black;'>Reset Your Password</p>", unsafe_allow_html=True)
+            with st.form("reset_form"):
+                email = st.text_input("Email Address", placeholder="Enter your email")
+                old_password = st.text_input("Current Password", type="password", placeholder="Enter current password")
+                new_password = st.text_input("New Password", type="password", placeholder="Enter new password")
+                confirm_password = st.text_input("Confirm New Password", type="password", placeholder="Confirm new password")
+                
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    submit_reset = st.form_submit_button("Update Password", use_container_width=True)
+                with col_b:
+                    cancel = st.form_submit_button("Cancel", use_container_width=True)
+                
+                if submit_reset:
+                    email_lower = email.lower().strip()
+                    if email_lower in AUTHORIZED_EMAILS:
+                        if st.session_state.user_passwords.get(email_lower) == old_password:
+                            if new_password == confirm_password:
+                                if len(new_password) >= 6:
+                                    st.session_state.user_passwords[email_lower] = new_password
+                                    st.success("✅ Password updated successfully!")
+                                    st.session_state.reset_mode = False
+                                    time.sleep(2)
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Password must be at least 6 characters long.")
+                            else:
+                                st.error("❌ New passwords do not match.")
+                        else:
+                            st.error("❌ Incorrect current password.")
+                    else:
+                        st.error("❌ Email not found.")
+                
+                if cancel:
+                    st.session_state.reset_mode = False
+                    st.rerun()
+
+# Check authentication
+if not check_authentication():
+    login_page()
+    st.stop()
+
+# Add logout button in sidebar
+with st.sidebar:
+    st.write(f"👤 Logged in as: **{st.session_state.user_email}**")
+    if st.button("🚪 Logout"):
+        st.session_state.authenticated = False
+        st.session_state.user_email = None
+        st.rerun()
+
+# ---------- Main Application (Only shown if authenticated) ----------
+
 # Main heading
 st.title("🗓️ EQS Event Scheduling")
 st.markdown("---")
@@ -28,7 +178,7 @@ def load_data():
                 df = pd.DataFrame(columns=[
                     "Title", "Date", "Type", "Status", "Source",
                     "Client", "Course/Description", "Trainer Calendar", "Medium", "Location",
-                    "Billing", "Invoiced", "Notes", "Date Modified", "Action Type"
+                    "Billing", "Invoiced", "Notes", "Date Modified", "Action Type", "Modified By"
                 ])
                 df.to_excel(EXCEL_FILE, index=False, engine='openpyxl')
                 return df
@@ -38,6 +188,10 @@ def load_data():
             # Remove Start Time, End Time, All Day columns if they exist
             columns_to_drop = ['Start Time', 'End Time', 'All Day']
             df = df.drop(columns=[col for col in columns_to_drop if col in df.columns], errors='ignore')
+            
+            # Add Modified By column if it doesn't exist
+            if 'Modified By' not in df.columns:
+                df['Modified By'] = ''
             
             # Ensure Date column is datetime
             if len(df) > 0 and 'Date' in df.columns:
@@ -67,7 +221,7 @@ def load_data():
                 df = pd.DataFrame(columns=[
                     "Title", "Date", "Type", "Status", "Source",
                     "Client", "Course/Description", "Trainer Calendar", "Medium", "Location",
-                    "Billing", "Invoiced", "Notes", "Date Modified", "Action Type"
+                    "Billing", "Invoiced", "Notes", "Date Modified", "Action Type", "Modified By"
                 ])
                 return df
     return pd.DataFrame()
@@ -169,7 +323,8 @@ with tab1:
                 "Invoiced": invoiced,
                 "Notes": notes,
                 "Date Modified": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "Action Type": "Created"
+                "Action Type": "Created",
+                "Modified By": st.session_state.user_email
             }
             new_row["Title"] = generate_title(new_row)
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
@@ -291,6 +446,7 @@ with tab2:
                                     df.at[idx, field] = value
                                 df.at[idx, "Date Modified"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                                 df.at[idx, "Action Type"] = "Bulk Modified"
+                                df.at[idx, "Modified By"] = st.session_state.user_email
                                 df.at[idx, "Title"] = generate_title(df.loc[idx])
                             
                             save_data(df)
@@ -318,6 +474,7 @@ with tab2:
                                 original["Date"] = pd.Timestamp(dup_date)
                                 original["Date Modified"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                                 original["Action Type"] = "Duplicated"
+                                original["Modified By"] = st.session_state.user_email
                                 original["Title"] = generate_title(original)
                                 new_events.append(original)
                             
@@ -349,6 +506,7 @@ with tab2:
                                         new_event["Date"] = pd.Timestamp(current_date)
                                         new_event["Date Modified"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                                         new_event["Action Type"] = "Duplicated"
+                                        new_event["Modified By"] = st.session_state.user_email
                                         new_event["Title"] = generate_title(new_event)
                                         new_events.append(new_event)
                                         current_date += timedelta(days=1)
@@ -367,6 +525,12 @@ with tab2:
                     st.write(f"- {df.loc[idx, 'Title']}")
                 
                 if st.button(f"🗑️ Delete {len(selected_events)} Event(s)", type="primary", use_container_width=True):
+                    # Log deletion in remaining events
+                    for idx in selected_events:
+                        df.at[idx, "Action Type"] = "Deleted"
+                        df.at[idx, "Modified By"] = st.session_state.user_email
+                        df.at[idx, "Date Modified"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    
                     df = df.drop(selected_events).reset_index(drop=True)
                     save_data(df)
                     st.success(f"✅ Deleted {len(selected_events)} event(s)!")
@@ -492,6 +656,10 @@ with tab3:
                         st.write(f"**Notes:** {event['Notes']}")
                     if event['Billing']:
                         st.write(f"**Billing:** {event['Billing']}")
+                    
+                    # Show modification info
+                    st.markdown("---")
+                    st.write(f"**Last Modified:** {event['Date Modified']} | **Action:** {event['Action Type']} | **By:** {event.get('Modified By', 'N/A')}")
                     
                     st.markdown("</div>", unsafe_allow_html=True)
         else:
