@@ -49,8 +49,7 @@ def login_page():
             font-weight: bold;
         }
        .stButton>button:hover {
-            background-color: #E85A2A;
-            color: white;
+            color: black;
         }
         h1, h2, h3, p, label, div {
             color: black !important;
