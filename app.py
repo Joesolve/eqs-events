@@ -43,14 +43,12 @@ def login_page():
         }
         .stButton>button {
             background-color: #E85A2A;
-            color: black;
+            color: white;
             border: none;
             padding: 10px 24px;
             font-weight: bold;
         }
-        .stButton>button:hover {
-            background-color: #E85A2A;
-            color: white;
+     
         }
         h1, h2, h3, p, label, div {
             color: black !important;
