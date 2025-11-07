@@ -39,18 +39,31 @@ def login_page():
     st.markdown("""
         <style>
         .stApp {
-            background-color: white;
+            background-color: white !important;
         }
         .stButton>button {
-            background-color: #FF6B35;
-            color: white;
-            border: none;
-            padding: 10px 24px;
-            font-weight: bold;
+            background-color: #FF6B35 !important;
+            color: white !important;
+            border: none !important;
+            padding: 10px 24px !important;
+            font-weight: bold !important;
         }
-    
-        h1, h2, h3, p, label, div {
-            color: black;
+        .stButton>button:hover {
+            background-color: #E55A2B !important;
+            color: white !important;
+        }
+        h1, h2, h3, p, label, div, span, .stMarkdown {
+            color: black !important;
+        }
+        .stTextInput>div>div>input {
+            color: black !important;
+        }
+        .stTextInput>label, .stSelectbox>label, .stForm label {
+            color: black !important;
+        }
+        /* Force all text to be black */
+        * {
+            color: black !important;
         }
         </style>
     """, unsafe_allow_html=True)
