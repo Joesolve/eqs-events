@@ -41,14 +41,14 @@ def login_page():
         .stApp {
             background-color: white;
         }
-       .stButton>button {
-            background-color: #E85A2A;
+        .stButton>button {
+            background-color: #FF6B35;
             color: white;
             border: none;
             padding: 10px 24px;
             font-weight: bold;
         }
-     
+    
         h1, h2, h3, p, label, div {
             color: black !important;
         }
