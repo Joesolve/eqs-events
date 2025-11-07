@@ -48,9 +48,7 @@ def login_page():
             padding: 10px 24px;
             font-weight: bold;
         }
-       .stButton>button:hover {
-            color: black;
-        }
+     
         h1, h2, h3, p, label, div {
             color: black !important;
         }
