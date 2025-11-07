@@ -50,7 +50,7 @@ def login_page():
         }
     
         h1, h2, h3, p, label, div {
-            color: black !important;
+            color: black;
         }
         </style>
     """, unsafe_allow_html=True)
