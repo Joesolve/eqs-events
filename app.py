@@ -87,7 +87,7 @@ def login_page():
                 with col_a:
                     submit = st.form_submit_button("Login", use_container_width=True)
                 with col_b:
-                    reset = st.form_submit_button("Reset Password", use_container_width=True)
+                    reset = st.form_submit_button("Reset", use_container_width=True)
                 
                 if submit:
                     email_lower = email.lower().strip()
