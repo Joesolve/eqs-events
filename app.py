@@ -42,8 +42,8 @@ def login_page():
             background-color: white;
         }
         .stButton>button {
-            background-color: white !important;
-            color: #ffffff !important;
+            background-color: #FF6B35;
+            color: white;
             border: none;
             padding: 10px 24px;
             font-weight: bold;
