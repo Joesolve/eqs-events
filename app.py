@@ -48,7 +48,10 @@ def login_page():
             padding: 10px 24px;
             font-weight: bold;
         }
-    
+        .stButton>button:hover {
+            background-color: #E85A2A;
+            color: white;
+        }
         h1, h2, h3, p, label, div {
             color: black !important;
         }
@@ -87,7 +90,7 @@ def login_page():
                 with col_a:
                     submit = st.form_submit_button("Login", use_container_width=True)
                 with col_b:
-                    reset = st.form_submit_button("Reset", use_container_width=True)
+                    reset = st.form_submit_button("Reset Password", use_container_width=True)
                 
                 if submit:
                     email_lower = email.lower().strip()
@@ -287,7 +290,9 @@ with tab1:
     with st.form("add_form", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
         with c1:
-            date = st.date_input("Date")
+            start_date = st.date_input("Start Date")
+            end_date = st.date_input("End Date", value=start_date)
+            st.info("💡 For single-day events, set End Date same as Start Date")
         
         with c2:
             type_ = st.selectbox("Type", ["W", "C", "M"])
@@ -306,28 +311,45 @@ with tab1:
 
         submitted = st.form_submit_button("Save Event", use_container_width=True)
         if submitted:
-            new_row = {
-                "Date": date,
-                "Type": type_,
-                "Status": status,
-                "Source": source,
-                "Client": client,
-                "Course/Description": course,
-                "Trainer Calendar": trainer,
-                "Medium": medium,
-                "Location": location,
-                "Billing": billing,
-                "Invoiced": invoiced,
-                "Notes": notes,
-                "Date Modified": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "Action Type": "Created",
-                "Modified By": st.session_state.user_email
-            }
-            new_row["Title"] = generate_title(new_row)
-            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-            save_data(df)
-            st.success("✅ Event added successfully! Form cleared for new entry.")
-            st.rerun()
+            if end_date < start_date:
+                st.error("❌ End Date cannot be before Start Date!")
+            else:
+                # Create an event for each day in the range
+                events_to_add = []
+                current_date = start_date
+                
+                while current_date <= end_date:
+                    new_row = {
+                        "Date": current_date,
+                        "Type": type_,
+                        "Status": status,
+                        "Source": source,
+                        "Client": client,
+                        "Course/Description": course,
+                        "Trainer Calendar": trainer,
+                        "Medium": medium,
+                        "Location": location,
+                        "Billing": billing,
+                        "Invoiced": invoiced,
+                        "Notes": notes,
+                        "Date Modified": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "Action Type": "Created",
+                        "Modified By": st.session_state.user_email
+                    }
+                    new_row["Title"] = generate_title(new_row)
+                    events_to_add.append(new_row)
+                    current_date += timedelta(days=1)
+                
+                # Add all events
+                df = pd.concat([df, pd.DataFrame(events_to_add)], ignore_index=True)
+                save_data(df)
+                
+                num_days = len(events_to_add)
+                if num_days == 1:
+                    st.success("✅ Event added successfully! Form cleared for new entry.")
+                else:
+                    st.success(f"✅ {num_days} events added successfully (one for each day)! Form cleared for new entry.")
+                st.rerun()
 
 # ---------- MANAGE EVENTS TAB ----------
 with tab2:
@@ -336,18 +358,33 @@ with tab2:
     # Filters
     st.subheader("🔍 Filter Events")
     col1, col2, col3, col4, col5 = st.columns(5)
-    trainer_filter = col1.selectbox("Trainer", ["All"] + TRAINERS, key="search_trainer")
-    month_filter = col2.selectbox("Month", MONTHS, key="search_month")
+    
+    # Date range filter
+    with col1:
+        use_date_range = st.checkbox("Filter by Date Range", value=False)
+        if use_date_range:
+            date_from = st.date_input("From Date", key="date_from")
+            date_to = st.date_input("To Date", key="date_to")
+    
+    trainer_filter = col2.selectbox("Trainer", ["All"] + TRAINERS, key="search_trainer")
     status_filter = col3.selectbox("Status", STATUSES, key="search_status")
     source_filter = col4.selectbox("Source", SOURCES, key="search_source")
     client_search = col5.text_input("Client", key="search_client", placeholder="Search client...")
 
     result = df.copy()
 
+    # Apply date range filter if enabled
+    if use_date_range:
+        if date_to < date_from:
+            st.warning("⚠️ 'To Date' cannot be before 'From Date'")
+        else:
+            result = result[
+                (pd.to_datetime(result["Date"]).dt.date >= date_from) & 
+                (pd.to_datetime(result["Date"]).dt.date <= date_to)
+            ]
+    
     if trainer_filter != "All":
         result = result[result["Trainer Calendar"] == trainer_filter]
-    if month_filter != "All months":
-        result = result[pd.to_datetime(result["Date"]).dt.month_name() == month_filter]
     if status_filter != "All":
         result = result[result["Status"] == status_filter]
     if source_filter != "All":
@@ -392,63 +429,148 @@ with tab2:
         if len(selected_events) > 0:
             st.write(f"### 🎯 {len(selected_events)} Event(s) Selected")
             
-            op_tab1, op_tab2, op_tab3 = st.tabs(["✏️ Bulk Edit", "📋 Duplicate", "🗑️ Delete"])
+            # Show different tabs based on number of selected events
+            if len(selected_events) == 1:
+                # Single event editing
+                op_tab1, op_tab2, op_tab3 = st.tabs(["✏️ Edit Event", "📋 Duplicate", "🗑️ Delete"])
+                
+                # SINGLE EDIT
+                with op_tab1:
+                    selected_idx = selected_events[0]
+                    selected_event = df.loc[selected_idx]
+                    
+                    st.write(f"**Editing:** {selected_event['Title']}")
+                    st.divider()
+                    
+                    with st.form("single_edit_form"):
+                        st.subheader("Edit Event Details")
+                        
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            edit_start_date = st.date_input("Start Date", value=pd.to_datetime(selected_event["Date"]).date())
+                            edit_end_date = st.date_input("End Date", value=pd.to_datetime(selected_event["Date"]).date())
+                            st.info("💡 Changing dates will create separate events for each day")
+                        
+                        with c2:
+                            edit_type = st.selectbox("Type", ["W", "C", "M"], 
+                                                    index=["W", "C", "M"].index(selected_event["Type"]))
+                            edit_status = st.selectbox("Status", ["Offered", "Tentative", "Confirmed"],
+                                                      index=["Offered", "Tentative", "Confirmed"].index(selected_event["Status"]))
+                            edit_source = st.selectbox("Source", ["EQS", "CCE", "CTD"],
+                                                      index=["EQS", "CCE", "CTD"].index(selected_event["Source"]))
+                        with c3:
+                            edit_client = st.text_input("Client", value=selected_event["Client"])
+                            edit_course = st.text_input("Course / Description", value=selected_event["Course/Description"])
+                            edit_trainer = st.selectbox("Trainer Calendar", TRAINERS,
+                                                       index=TRAINERS.index(selected_event["Trainer Calendar"]))
+                            edit_medium = st.selectbox("Medium", ["F2F", "Online"],
+                                                      index=0 if selected_event["Medium"] == "F2F" else 1)
+
+                        edit_location = st.selectbox("Location", LOCATIONS,
+                                                    index=LOCATIONS.index(selected_event["Location"]))
+                        edit_billing = st.text_area("Billing Notes", value=selected_event["Billing"])
+                        edit_invoiced = st.selectbox("Invoiced", ["No", "Yes"],
+                                                    index=0 if selected_event["Invoiced"] == "No" else 1)
+                        edit_notes = st.text_area("Additional Notes", value=selected_event["Notes"])
+                        
+                        if st.form_submit_button("💾 Save Changes", use_container_width=True):
+                            if edit_end_date < edit_start_date:
+                                st.error("❌ End Date cannot be before Start Date!")
+                            else:
+                                # Delete the original event
+                                df = df.drop(selected_idx).reset_index(drop=True)
+                                
+                                # Create events for the new date range
+                                events_to_add = []
+                                current_date = edit_start_date
+                                
+                                while current_date <= edit_end_date:
+                                    updated_row = {
+                                        "Date": current_date,
+                                        "Type": edit_type,
+                                        "Status": edit_status,
+                                        "Source": edit_source,
+                                        "Client": edit_client,
+                                        "Course/Description": edit_course,
+                                        "Trainer Calendar": edit_trainer,
+                                        "Medium": edit_medium,
+                                        "Location": edit_location,
+                                        "Billing": edit_billing,
+                                        "Invoiced": edit_invoiced,
+                                        "Notes": edit_notes,
+                                        "Date Modified": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                        "Action Type": "Modified",
+                                        "Modified By": st.session_state.user_email
+                                    }
+                                    updated_row["Title"] = generate_title(updated_row)
+                                    events_to_add.append(updated_row)
+                                    current_date += timedelta(days=1)
+                                
+                                # Add updated events
+                                df = pd.concat([df, pd.DataFrame(events_to_add)], ignore_index=True)
+                                save_data(df)
+                                st.success("✅ Event updated successfully!")
+                                st.rerun()
             
-            # BULK EDIT
-            with op_tab1:
-                st.write(f"**Edit {len(selected_events)} selected event(s)**")
-                
-                # Show which events will be edited
-                st.write("**Events to be updated:**")
-                for idx in selected_events:
-                    st.write(f"- {df.loc[idx, 'Title']} ({df.loc[idx, 'Date'].strftime('%Y-%m-%d')})")
-                
-                st.divider()
-                
-                with st.form("bulk_edit_form"):
-                    update_options = st.multiselect(
-                        "Select fields to update",
-                        ["Status", "Trainer Calendar", "Location", "Medium", "Invoiced", "Type", "Source"],
-                        help="Only the fields you select here will be updated"
-                    )
+            else:
+                # Multiple events - show bulk operations
+                op_tab1, op_tab2, op_tab3 = st.tabs(["✏️ Bulk Edit", "📋 Duplicate", "🗑️ Delete"])
+            
+                # BULK EDIT
+                with op_tab1:
+                    st.write(f"**Edit {len(selected_events)} selected event(s)**")
                     
-                    bulk_updates = {}
+                    # Show which events will be edited
+                    st.write("**Events to be updated:**")
+                    for idx in selected_events:
+                        st.write(f"- {df.loc[idx, 'Title']} ({df.loc[idx, 'Date'].strftime('%Y-%m-%d')})")
                     
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if "Status" in update_options:
-                            bulk_updates["Status"] = st.selectbox("New Status", ["Offered", "Tentative", "Confirmed"], key="bulk_status_new")
-                        if "Trainer Calendar" in update_options:
-                            bulk_updates["Trainer Calendar"] = st.selectbox("New Trainer", TRAINERS, key="bulk_trainer_new")
-                        if "Location" in update_options:
-                            bulk_updates["Location"] = st.selectbox("New Location", LOCATIONS, key="bulk_location_new")
-                        if "Type" in update_options:
-                            bulk_updates["Type"] = st.selectbox("New Type", ["W", "C", "M"], key="bulk_type_new")
+                    st.divider()
                     
-                    with col2:
-                        if "Medium" in update_options:
-                            bulk_updates["Medium"] = st.selectbox("New Medium", ["F2F", "Online"], key="bulk_medium_new")
-                        if "Invoiced" in update_options:
-                            bulk_updates["Invoiced"] = st.selectbox("New Invoiced", ["No", "Yes"], key="bulk_invoiced_new")
-                        if "Source" in update_options:
-                            bulk_updates["Source"] = st.selectbox("New Source", ["EQS", "CCE", "CTD"], key="bulk_source_new")
-                    
-                    if st.form_submit_button(f"💾 Update {len(selected_events)} Event(s)", use_container_width=True):
-                        if len(update_options) == 0:
-                            st.warning("Please select at least one field to update!")
-                        else:
-                            # Only update the SELECTED events, not all filtered events
-                            for idx in selected_events:
-                                for field, value in bulk_updates.items():
-                                    df.at[idx, field] = value
-                                df.at[idx, "Date Modified"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                                df.at[idx, "Action Type"] = "Bulk Modified"
-                                df.at[idx, "Modified By"] = st.session_state.user_email
-                                df.at[idx, "Title"] = generate_title(df.loc[idx])
-                            
-                            save_data(df)
-                            st.success(f"✅ Updated {len(selected_events)} event(s)!")
-                            st.rerun()
+                    with st.form("bulk_edit_form"):
+                        update_options = st.multiselect(
+                            "Select fields to update",
+                            ["Status", "Trainer Calendar", "Location", "Medium", "Invoiced", "Type", "Source"],
+                            help="Only the fields you select here will be updated"
+                        )
+                        
+                        bulk_updates = {}
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if "Status" in update_options:
+                                bulk_updates["Status"] = st.selectbox("New Status", ["Offered", "Tentative", "Confirmed"], key="bulk_status_new")
+                            if "Trainer Calendar" in update_options:
+                                bulk_updates["Trainer Calendar"] = st.selectbox("New Trainer", TRAINERS, key="bulk_trainer_new")
+                            if "Location" in update_options:
+                                bulk_updates["Location"] = st.selectbox("New Location", LOCATIONS, key="bulk_location_new")
+                            if "Type" in update_options:
+                                bulk_updates["Type"] = st.selectbox("New Type", ["W", "C", "M"], key="bulk_type_new")
+                        
+                        with col2:
+                            if "Medium" in update_options:
+                                bulk_updates["Medium"] = st.selectbox("New Medium", ["F2F", "Online"], key="bulk_medium_new")
+                            if "Invoiced" in update_options:
+                                bulk_updates["Invoiced"] = st.selectbox("New Invoiced", ["No", "Yes"], key="bulk_invoiced_new")
+                            if "Source" in update_options:
+                                bulk_updates["Source"] = st.selectbox("New Source", ["EQS", "CCE", "CTD"], key="bulk_source_new")
+                        
+                        if st.form_submit_button(f"💾 Update {len(selected_events)} Event(s)", use_container_width=True):
+                            if len(update_options) == 0:
+                                st.warning("Please select at least one field to update!")
+                            else:
+                                # Only update the SELECTED events, not all filtered events
+                                for idx in selected_events:
+                                    for field, value in bulk_updates.items():
+                                        df.at[idx, field] = value
+                                    df.at[idx, "Date Modified"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                                    df.at[idx, "Action Type"] = "Bulk Modified"
+                                    df.at[idx, "Modified By"] = st.session_state.user_email
+                                    df.at[idx, "Title"] = generate_title(df.loc[idx])
+                                
+                                save_data(df)
+                                st.success(f"✅ Updated {len(selected_events)} event(s)!")
+                                st.rerun()
             
             # DUPLICATE
             with op_tab2:
@@ -622,7 +744,154 @@ with tab3:
     
     # Show event details when a day is selected
     st.divider()
+    
+    # Display all events for the month at the bottom
+    st.subheader(f"📋 All Events in {datetime(2000, selected_month, 1).strftime('%B')} {selected_year}")
+    
+    if len(month_events) > 0:
+        st.write(f"**Total: {len(month_events)} event(s)**")
+        
+        # Sort by date
+        month_events_sorted = month_events.sort_values('Date')
+        
+        # Display events in expandable sections
+        for idx, (event_idx, event) in enumerate(month_events_sorted.iterrows()):
+            trainer_color = TRAINER_COLORS.get(event["Trainer Calendar"], "#CCCCCC")
+            
+            with st.expander(f"📅 {event['Date'].strftime('%b %d')} - **{event['Title']}**"):
+                st.markdown(f"<div style='background-color: {trainer_color}; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>", unsafe_allow_html=True)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.write(f"**Trainer:** {event['Trainer Calendar']}")
+                    st.write(f"**Type:** {event['Type']}")
+                    st.write(f"**Status:** {event['Status']}")
+                with col2:
+                    st.write(f"**Client:** {event['Client']}")
+                    st.write(f"**Source:** {event['Source']}")
+                    st.write(f"**Medium:** {event['Medium']}")
+                with col3:
+                    st.write(f"**Location:** {event['Location']}")
+                    st.write(f"**Invoiced:** {event['Invoiced']}")
+                
+                st.write(f"**Course:** {event['Course/Description']}")
+                if event['Notes']:
+                    st.write(f"**Notes:** {event['Notes']}")
+                if event['Billing']:
+                    st.write(f"**Billing:** {event['Billing']}")
+                
+                # Show modification info
+                st.markdown("---")
+                st.write(f"**Last Modified:** {event['Date Modified']} | **Action:** {event['Action Type']} | **By:** {event.get('Modified By', 'N/A')}")
+                
+                st.markdown("</div>", unsafe_allow_html=True)
+                
+                # Edit button for this event
+                if st.button(f"✏️ Edit This Event", key=f"edit_cal_{event_idx}"):
+                    st.session_state[f"edit_event_idx"] = event_idx
+                    st.rerun()
+        
+        # Show edit form if an event is selected for editing
+        if "edit_event_idx" in st.session_state:
+            st.divider()
+            st.subheader("✏️ Edit Event")
+            
+            edit_idx = st.session_state["edit_event_idx"]
+            
+            # Check if the event still exists
+            if edit_idx in df.index:
+                selected_event = df.loc[edit_idx]
+                
+                with st.form("calendar_edit_form"):
+                    st.write(f"**Editing:** {selected_event['Title']}")
+                    
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        edit_start_date = st.date_input("Start Date", value=pd.to_datetime(selected_event["Date"]).date())
+                        edit_end_date = st.date_input("End Date", value=pd.to_datetime(selected_event["Date"]).date())
+                        st.info("💡 Changing dates will create separate events for each day")
+                    
+                    with c2:
+                        edit_type = st.selectbox("Type", ["W", "C", "M"], 
+                                                index=["W", "C", "M"].index(selected_event["Type"]))
+                        edit_status = st.selectbox("Status", ["Offered", "Tentative", "Confirmed"],
+                                                  index=["Offered", "Tentative", "Confirmed"].index(selected_event["Status"]))
+                        edit_source = st.selectbox("Source", ["EQS", "CCE", "CTD"],
+                                                  index=["EQS", "CCE", "CTD"].index(selected_event["Source"]))
+                    with c3:
+                        edit_client = st.text_input("Client", value=selected_event["Client"])
+                        edit_course = st.text_input("Course / Description", value=selected_event["Course/Description"])
+                        edit_trainer = st.selectbox("Trainer Calendar", TRAINERS,
+                                                   index=TRAINERS.index(selected_event["Trainer Calendar"]))
+                        edit_medium = st.selectbox("Medium", ["F2F", "Online"],
+                                                  index=0 if selected_event["Medium"] == "F2F" else 1)
+
+                    edit_location = st.selectbox("Location", LOCATIONS,
+                                                index=LOCATIONS.index(selected_event["Location"]))
+                    edit_billing = st.text_area("Billing Notes", value=selected_event["Billing"])
+                    edit_invoiced = st.selectbox("Invoiced", ["No", "Yes"],
+                                                index=0 if selected_event["Invoiced"] == "No" else 1)
+                    edit_notes = st.text_area("Additional Notes", value=selected_event["Notes"])
+                    
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        save_changes = st.form_submit_button("💾 Save Changes", use_container_width=True)
+                    with col_b:
+                        cancel_edit = st.form_submit_button("❌ Cancel", use_container_width=True)
+                    
+                    if save_changes:
+                        if edit_end_date < edit_start_date:
+                            st.error("❌ End Date cannot be before Start Date!")
+                        else:
+                            # Delete the original event
+                            df = df.drop(edit_idx).reset_index(drop=True)
+                            
+                            # Create events for the new date range
+                            events_to_add = []
+                            current_date = edit_start_date
+                            
+                            while current_date <= edit_end_date:
+                                updated_row = {
+                                    "Date": current_date,
+                                    "Type": edit_type,
+                                    "Status": edit_status,
+                                    "Source": edit_source,
+                                    "Client": edit_client,
+                                    "Course/Description": edit_course,
+                                    "Trainer Calendar": edit_trainer,
+                                    "Medium": edit_medium,
+                                    "Location": edit_location,
+                                    "Billing": edit_billing,
+                                    "Invoiced": edit_invoiced,
+                                    "Notes": edit_notes,
+                                    "Date Modified": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                    "Action Type": "Modified",
+                                    "Modified By": st.session_state.user_email
+                                }
+                                updated_row["Title"] = generate_title(updated_row)
+                                events_to_add.append(updated_row)
+                                current_date += timedelta(days=1)
+                            
+                            # Add updated events
+                            df = pd.concat([df, pd.DataFrame(events_to_add)], ignore_index=True)
+                            save_data(df)
+                            del st.session_state["edit_event_idx"]
+                            st.success("✅ Event updated successfully!")
+                            st.rerun()
+                    
+                    if cancel_edit:
+                        del st.session_state["edit_event_idx"]
+                        st.rerun()
+            else:
+                st.error("Event not found. It may have been deleted.")
+                del st.session_state["edit_event_idx"]
+                st.rerun()
+    else:
+        st.info("No events found for this month.")
+    
+    # Original day-click functionality (keep for backward compatibility)
     if "selected_day" in st.session_state:
+        st.divider()
         selected_date = st.session_state["selected_day"]
         st.subheader(f"📋 Events on {selected_date.strftime('%B %d, %Y')}")
         
