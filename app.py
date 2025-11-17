@@ -399,7 +399,7 @@ with tab2:
         st.info("No events found with current filters.")
     else:
         # Add selection column
-        st.write("### Select Events for Bulk Operations")
+        st.write("### Select One Event for Single Edit or More for Bulk Operation")
         
         # Create checkboxes for each event
         selected_events = []
